@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Licznik gazu</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Gaz">
+<meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16171a" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #ffffff; --text: #1b1c1f; --muted: #6b6f76;
+    --line: #e3e3df; --accent: #e8590c; --accent-soft: #fde4d4; --danger: #c92a2a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171a; --card: #202226; --text: #ececec; --muted: #9a9ea6;
+      --line: #33363c; --accent: #ff7a2e; --accent-soft: #4a2a17; --danger: #ff6b6b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+    -webkit-tap-highlight-color: transparent;
+  }
+  main { max-width: 640px; margin: 0 auto; display: grid; gap: 16px; }
+  .card { background: var(--card); border-radius: 16px; padding: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  form { display: grid; gap: 10px; }
+  .row { display: flex; gap: 8px; }
+  input {
+    font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px; min-width: 0;
+  }
+  #m3 { flex: 1 1 0; width: 0; font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  button {
+    font: inherit; font-weight: 600; border: 0; border-radius: 12px; padding: 12px 18px;
+    background: var(--accent); color: #fff; cursor: pointer;
+  }
+  button.ghost { background: var(--bg); color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+  details summary { color: var(--muted); font-size: 14px; cursor: pointer; }
+  details input { width: 100%; margin-top: 8px; }
+  .msg { font-size: 14px; min-height: 1.4em; margin: 0; }
+  .msg.error { color: var(--danger); }
+  .msg.ok { color: var(--muted); }
+
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .tile { background: var(--card); border-radius: 16px; padding: 14px 16px; }
+  .tile .label { font-size: 13px; color: var(--muted); }
+  .tile .value { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .tile .value small { font-size: 15px; font-weight: 500; color: var(--muted); }
+  .tile .sub { font-size: 12px; color: var(--muted); }
+
+  #chart svg { display: block; width: 100%; height: auto; }
+  #chart .axis { stroke: var(--line); }
+  #chart .tick { fill: var(--muted); font-size: 20px; }
+  #chart .step { stroke: var(--accent); stroke-width: 2.5; fill: none; stroke-linejoin: round; }
+  #chart .area { fill: var(--accent-soft); opacity: .6; }
+
+  #table { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: right; color: var(--muted); font-weight: 500; font-size: 12px; padding: 0 4px 8px; }
+  th, td { white-space: nowrap; }
+  td { text-align: right; padding: 8px 3px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  td.del { width: 1%; }
+  td.del button { background: none; color: var(--muted); padding: 2px 6px; font-size: 18px; font-weight: 400; }
+  .empty { color: var(--muted); font-size: 14px; margin: 0; }
+
+  .backup { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .backup .note { font-size: 13px; color: var(--muted); flex-basis: 100%; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Licznik gazu</h1>
+
+  <section class="card">
+    <form id="form" autocomplete="off">
+      <div class="row">
+        <input id="m3" inputmode="decimal" placeholder="m³" aria-label="Stan licznika w m³" required>
+        <button type="submit">Zapisz</button>
+      </div>
+      <details>
+        <summary>Inny czas odczytu</summary>
+        <input id="when" type="datetime-local" aria-label="Czas odczytu">
+      </details>
+      <p id="msg" class="msg"></p>
+    </form>
+  </section>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="card" id="chart-card">
+    <h2>Średnia moc w przedziałach</h2>
+    <div id="chart"></div>
+  </section>
+
+  <section class="card">
+    <h2>Przedziały</h2>
+    <div id="table"></div>
+  </section>
+
+  <section class="card">
+    <h2>Backup</h2>
+    <div class="backup">
+      <button class="ghost" id="export">Eksport</button>
+      <button class="ghost" id="import">Import</button>
+      <input type="file" id="import-file" accept="application/json,.json" hidden>
+      <span class="note" id="backup-note"></span>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import { parseReading, sortEntries, intervals, summary, validateEntry, formatDuration, KWH_PER_M3, DAY } from './calc.js';
+
+const KEY = 'gas-meter.entries';
+const EXPORT_KEY = 'gas-meter.lastExport';
+
+const $ = id => document.getElementById(id);
+const nf = (d) => new Intl.NumberFormat('pl-PL', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmt = (n, d = 2) => Number.isFinite(n) ? nf(d).format(n) : '–';
+const dateFmt = new Intl.DateTimeFormat('pl-PL', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+const dayFmt = new Intl.DateTimeFormat('pl-PL', { day: 'numeric', month: 'numeric' });
+
+function load() {
+  try { return sortEntries(JSON.parse(localStorage.getItem(KEY)) || []); } catch { return []; }
+}
+function save(entries) {
+  localStorage.setItem(KEY, JSON.stringify(sortEntries(entries)));
+}
+
+let entries = load();
+
+function showMsg(text, kind = 'ok') {
+  $('msg').textContent = text;
+  $('msg').className = `msg ${kind}`;
+}
+
+$('form').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const m3 = parseReading($('m3').value);
+  const ts = $('when').value ? new Date($('when').value).getTime() : Date.now();
+  const entry = { ts, m3 };
+  const v = validateEntry(entries, entry);
+  if (v.error) return showMsg(v.error, 'error');
+  if (v.warning && !confirm(v.warning)) return;
+  entries = sortEntries([...entries, entry]);
+  save(entries);
+  $('when').value = '';
+  $('form').querySelector('details').open = false;
+  showMsg(`Zapisano ${fmt(m3, 3)} m³ · ${dateFmt.format(ts)}`);
+  render();
+});
+
+function renderTiles() {
+  const s = summary(entries);
+  const tile = (label, value, unit, sub = '') =>
+    `<div class="tile"><div class="label">${label}</div><div class="value">${value} <small>${unit}</small></div><div class="sub">${sub}</div></div>`;
+  if (!s) {
+    $('tiles').innerHTML = `<div class="tile" style="grid-column:1/-1"><p class="empty">${
+      entries.length ? 'Jeszcze jeden odczyt i pojawią się wyniki.' : 'Wpisz pierwszy odczyt licznika.'
+    }</p></div>`;
+    return;
+  }
+  $('tiles').innerHTML =
+    tile('Ostatni przedział', fmt(s.lastKw), 'kW') +
+    tile('Ostatnie 7 dni', fmt(s.week.kw), 'kW', `${fmt(s.week.kwh, 0)} kWh`) +
+    tile('Sezon', fmt(s.season.kw), 'kW', `${fmt(s.season.hours / 24, 1)} dni`) +
+    tile('Zużycie w sezonie', fmt(s.season.kwh, 0), 'kWh', `${fmt(s.season.kwh / KWH_PER_M3, 1)} m³`);
+}
+
+function renderChart() {
+  const ivs = intervals(entries);
+  $('chart-card').hidden = ivs.length === 0;
+  if (!ivs.length) return;
+
+  const W = 600, H = 260, L = 44, R = 8, T = 12, B = 34;
+  const x0 = ivs[0].from, x1 = ivs.at(-1).to;
+  const maxKw = Math.max(...ivs.map(i => i.kw), 0.1);
+  const step = niceStep(maxKw / 4);
+  const yMax = Math.ceil(maxKw / step) * step;
+  const x = t => L + (t - x0) / (x1 - x0) * (W - L - R);
+  const y = kw => T + (1 - kw / yMax) * (H - T - B);
+
+  let d = `M${x(ivs[0].from)},${y(ivs[0].kw)}`;
+  for (const iv of ivs) d += ` V${y(iv.kw)} H${x(iv.to)}`;
+  const area = `${d} V${y(0)} H${x(x0)} Z`;
+
+  let ticks = '';
+  for (let v = 0; v <= yMax + 1e-9; v += step) {
+    ticks += `<line class="axis" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>`;
+    ticks += `<text class="tick" x="${L - 8}" y="${y(v) + 7}" text-anchor="end">${fmt(v, step < 1 ? 1 : 0)}</text>`;
+  }
+  const spanDays = (x1 - x0) / DAY;
+  const dayStep = Math.max(1, Math.ceil(spanDays / 6));
+  const start = new Date(x0); start.setHours(0, 0, 0, 0);
+  for (let t = start.getTime() + DAY; t < x1; t += dayStep * DAY) {
+    ticks += `<text class="tick" x="${x(t)}" y="${H - 8}" text-anchor="middle">${dayFmt.format(t)}</text>`;
+  }
+
+  $('chart').innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Wykres średniej mocy">${ticks}
+      <path class="area" d="${area}"/><path class="step" d="${d}"/></svg>`;
+}
+
+function niceStep(raw) {
+  const p = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 5, 10].map(m => m * p).find(s => s >= raw);
+}
+
+function renderTable() {
+  if (!entries.length) { $('table').innerHTML = '<p class="empty">Brak odczytów.</p>'; return; }
+  const ivs = intervals(entries);
+  // Newest first; each row = a reading plus the interval ending at it.
+  const rows = entries.map((e, i) => ({ e, iv: i > 0 ? ivs[i - 1] : null })).reverse();
+  $('table').innerHTML = `<table>
+    <thead><tr><th>Odczyt</th><th>m³</th><th>Czas</th><th>Δ m³</th><th>kWh</th><th>kW</th><th></th></tr></thead>
+    <tbody>${rows.map(({ e, iv }) => `<tr>
+      <td>${dateFmt.format(e.ts)}</td>
+      <td>${fmt(e.m3, 3)}</td>
+      <td>${iv ? formatDuration(iv.to - iv.from) : ''}</td>
+      <td>${iv ? fmt(iv.dm3, 3) : ''}</td>
+      <td>${iv ? fmt(iv.kwh, 1) : ''}</td>
+      <td>${iv ? fmt(iv.kw) : ''}</td>
+      <td class="del"><button data-ts="${e.ts}" aria-label="Usuń odczyt">×</button></td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+$('table').addEventListener('click', (ev) => {
+  const ts = Number(ev.target.dataset?.ts);
+  if (!ts) return;
+  const e = entries.find(e => e.ts === ts);
+  if (!confirm(`Usunąć odczyt ${fmt(e.m3, 3)} m³ z ${dateFmt.format(ts)}?`)) return;
+  entries = entries.filter(e => e.ts !== ts);
+  save(entries);
+  render();
+});
+
+function renderBackupNote() {
+  const last = Number(localStorage.getItem(EXPORT_KEY));
+  if (!entries.length) { $('backup-note').textContent = ''; return; }
+  if (!last) { $('backup-note').textContent = 'Jeszcze nie eksportowano.'; return; }
+  const days = Math.floor((Date.now() - last) / DAY);
+  $('backup-note').textContent = `Ostatni eksport: ${days === 0 ? 'dziś' : `${days} dni temu`}.`;
+}
+
+$('export').addEventListener('click', async () => {
+  const name = `licznik-gazu-${new Date().toISOString().slice(0, 10)}.json`;
+  const file = new File([JSON.stringify(entries, null, 2)], name, { type: 'application/json' });
+  try {
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file] });
+    } else {
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: name });
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+    localStorage.setItem(EXPORT_KEY, String(Date.now()));
+    renderBackupNote();
+  } catch (err) {
+    if (err.name !== 'AbortError') alert(`Eksport nie powiódł się: ${err.message}`);
+  }
+});
+
+$('import').addEventListener('click', () => $('import-file').click());
+$('import-file').addEventListener('change', async (ev) => {
+  const file = ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (!Array.isArray(data) || !data.every(e => Number.isFinite(e.ts) && Number.isFinite(e.m3))) {
+      throw new Error('nieprawidłowy format pliku');
+    }
+    if (!confirm(`Zastąpić obecne dane (${entries.length} odczytów) danymi z pliku (${data.length} odczytów)?`)) return;
+    entries = sortEntries(data.map(({ ts, m3 }) => ({ ts, m3 })));
+    save(entries);
+    render();
+  } catch (err) {
+    alert(`Import nie powiódł się: ${err.message}`);
+  }
+});
+
+function render() {
+  const last = entries.at(-1);
+  if (last) $('m3').value = String(last.m3).replace('.', ',');
+  renderTiles();
+  renderChart();
+  renderTable();
+  renderBackupNote();
+}
+
+render();
+</script>
+</body>
+</html>
