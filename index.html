@@ -62,7 +62,14 @@
   .tile .value small { font-size: 15px; font-weight: 500; color: var(--muted); }
   .tile .sub { font-size: 12px; color: var(--muted); }
 
+  .chart-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+  .chart-head h2 { margin: 0; flex: 1; }
+  .chart-head .range { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .chart-head button { padding: 4px 10px; font-size: 13px; }
+  #chart { touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: grab; }
+  #chart:active { cursor: grabbing; }
   #chart svg { display: block; width: 100%; height: auto; }
+  .hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
   #chart .axis { stroke: var(--line); }
   #chart .tick { fill: var(--muted); font-size: 20px; }
   #chart .step { stroke: var(--accent); stroke-width: 2.5; fill: none; stroke-linejoin: round; }
@@ -103,8 +110,13 @@
   <section class="tiles" id="tiles"></section>
 
   <section class="card" id="chart-card">
-    <h2>Średnia moc w przedziałach</h2>
+    <div class="chart-head">
+      <h2>Średnia moc</h2>
+      <span class="range" id="chart-range"></span>
+      <button class="ghost" id="chart-reset" hidden>Całość</button>
+    </div>
     <div id="chart"></div>
+    <p class="hint" id="chart-hint" hidden>Przybliżaj dwoma palcami, przesuwaj w bok.</p>
   </section>
 
   <section class="card">
@@ -124,7 +136,7 @@
 </main>
 
 <script type="module">
-import { parseReading, sortEntries, intervals, summary, validateEntry, formatDuration, KWH_PER_M3, DAY } from './calc.js';
+import { parseReading, sortEntries, intervals, summary, validateEntry, formatDuration, clampView, zoomView, MIN_VIEW, KWH_PER_M3, DAY } from './calc.js';
 
 const KEY = 'gas-meter.entries';
 const EXPORT_KEY = 'gas-meter.lastExport';
@@ -182,39 +194,139 @@ function renderTiles() {
     tile('Zużycie w sezonie', fmt(s.season.kwh, 0), 'kWh', `${fmt(s.season.kwh / KWH_PER_M3, 1)} m³`);
 }
 
+const CH = { W: 600, H: 260, L: 44, R: 8, T: 12, B: 34 };
+let view = null;          // null = whole season
+let followLatest = true;  // keep the right edge on the newest reading as entries are added
+
+function dataRange() {
+  const ivs = intervals(entries);
+  return ivs.length ? { first: ivs[0].from, last: ivs.at(-1).to } : null;
+}
+
+function currentView() {
+  const r = dataRange();
+  if (!view) return { start: r.first, end: r.last };
+  if (followLatest) return clampView(r.last - (view.end - view.start), r.last, r.first, r.last);
+  return clampView(view.start, view.end, r.first, r.last);
+}
+
+function setView(v) {
+  const r = dataRange();
+  followLatest = v.end >= r.last;
+  view = v.start <= r.first && v.end >= r.last ? null : v;
+  renderChart();
+}
+
 function renderChart() {
   const ivs = intervals(entries);
   $('chart-card').hidden = ivs.length === 0;
   if (!ivs.length) return;
 
-  const W = 600, H = 260, L = 44, R = 8, T = 12, B = 34;
-  const x0 = ivs[0].from, x1 = ivs.at(-1).to;
-  const maxKw = Math.max(...ivs.map(i => i.kw), 0.1);
+  const { W, H, L, R, T, B } = CH;
+  const { first, last } = dataRange();
+  const { start: x0, end: x1 } = currentView();
+  const visible = ivs.filter(i => i.to > x0 && i.from < x1);
+  const maxKw = Math.max(...visible.map(i => i.kw), 0.1);
   const step = niceStep(maxKw / 4);
   const yMax = Math.ceil(maxKw / step) * step;
   const x = t => L + (t - x0) / (x1 - x0) * (W - L - R);
   const y = kw => T + (1 - kw / yMax) * (H - T - B);
 
-  let d = `M${x(ivs[0].from)},${y(ivs[0].kw)}`;
-  for (const iv of ivs) d += ` V${y(iv.kw)} H${x(iv.to)}`;
-  const area = `${d} V${y(0)} H${x(x0)} Z`;
+  let d = `M${x(visible[0].from)},${y(visible[0].kw)}`;
+  for (const iv of visible) d += ` V${y(iv.kw)} H${x(iv.to)}`;
+  const area = `${d} V${y(0)} H${x(visible[0].from)} Z`;
 
   let ticks = '';
   for (let v = 0; v <= yMax + 1e-9; v += step) {
     ticks += `<line class="axis" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/>`;
     ticks += `<text class="tick" x="${L - 8}" y="${y(v) + 7}" text-anchor="end">${fmt(v, step < 1 ? 1 : 0)}</text>`;
   }
-  const spanDays = (x1 - x0) / DAY;
-  const dayStep = Math.max(1, Math.ceil(spanDays / 6));
-  const start = new Date(x0); start.setHours(0, 0, 0, 0);
-  for (let t = start.getTime() + DAY; t < x1; t += dayStep * DAY) {
-    ticks += `<text class="tick" x="${x(t)}" y="${H - 8}" text-anchor="middle">${dayFmt.format(t)}</text>`;
+  const dayStep = Math.max(1, Math.ceil((x1 - x0) / DAY / 6));
+  const day0 = new Date(x0); day0.setHours(0, 0, 0, 0);
+  for (let t = day0.getTime() + DAY; t < x1; t += dayStep * DAY) {
+    const px = x(t);
+    if (px < L + 20 || px > W - R - 20) continue;
+    ticks += `<text class="tick" x="${px}" y="${H - 8}" text-anchor="middle">${dayFmt.format(t)}</text>`;
   }
 
   $('chart').innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Wykres średniej mocy">${ticks}
-      <path class="area" d="${area}"/><path class="step" d="${d}"/></svg>`;
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Wykres średniej mocy">
+      <defs><clipPath id="plot"><rect x="${L}" y="0" width="${W - L - R}" height="${H}"/></clipPath></defs>
+      ${ticks}
+      <g clip-path="url(#plot)"><path class="area" d="${area}"/><path class="step" d="${d}"/></g></svg>`;
+
+  const zoomable = last - first > MIN_VIEW;
+  $('chart-hint').hidden = !zoomable || view !== null;
+  $('chart-reset').hidden = view === null;
+  $('chart-range').textContent = view ? `${dayFmt.format(x0)} – ${dayFmt.format(x1)}` : '';
 }
+
+// Gestures: one pointer pans, two pointers pinch-zoom; ctrl+wheel (trackpad pinch) zooms, horizontal wheel pans.
+const pointers = new Map();
+let gesture = null;
+
+function chartTimeAt(clientX, v) {
+  const rect = $('chart').getBoundingClientRect();
+  const svgX = (clientX - rect.left) * CH.W / rect.width;
+  const frac = Math.min(Math.max((svgX - CH.L) / (CH.W - CH.L - CH.R), 0), 1);
+  return v.start + frac * (v.end - v.start);
+}
+
+const pinchDist = ([a, b]) => Math.hypot(a.x - b.x, a.y - b.y) || 1;
+
+function startGesture() {
+  const pts = [...pointers.values()];
+  const v = currentView();
+  gesture = pts.length === 1
+    ? { kind: 'pan', v, x: pts[0].x }
+    : { kind: 'pinch', v, dist: pinchDist(pts), anchor: chartTimeAt((pts[0].x + pts[1].x) / 2, v) };
+}
+
+$('chart').addEventListener('pointerdown', (ev) => {
+  if (!dataRange()) return;
+  $('chart').setPointerCapture(ev.pointerId);
+  pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  startGesture();
+});
+
+$('chart').addEventListener('pointermove', (ev) => {
+  if (!pointers.has(ev.pointerId) || !gesture) return;
+  pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  const { first, last } = dataRange();
+  const g = gesture, span = g.v.end - g.v.start;
+  const pts = [...pointers.values()];
+  if (g.kind === 'pan') {
+    const rect = $('chart').getBoundingClientRect();
+    const plotPx = rect.width * (CH.W - CH.L - CH.R) / CH.W;
+    const dt = -(pts[0].x - g.x) / plotPx * span;
+    setView(clampView(g.v.start + dt, g.v.end + dt, first, last));
+  } else if (pts.length >= 2) {
+    setView(zoomView(g.v, g.dist / pinchDist(pts), g.anchor, first, last));
+  }
+});
+
+function endPointer(ev) {
+  pointers.delete(ev.pointerId);
+  pointers.size ? startGesture() : (gesture = null);
+}
+$('chart').addEventListener('pointerup', endPointer);
+$('chart').addEventListener('pointercancel', endPointer);
+
+$('chart').addEventListener('wheel', (ev) => {
+  const r = dataRange();
+  if (!r) return;
+  const v = currentView();
+  if (ev.ctrlKey) {
+    ev.preventDefault();
+    setView(zoomView(v, Math.exp(ev.deltaY * 0.01), chartTimeAt(ev.clientX, v), r.first, r.last));
+  } else if (Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) {
+    ev.preventDefault();
+    const dt = ev.deltaX / $('chart').getBoundingClientRect().width * (v.end - v.start);
+    setView(clampView(v.start + dt, v.end + dt, r.first, r.last));
+  }
+}, { passive: false });
+
+$('chart-reset').addEventListener('click', () => { view = null; followLatest = true; renderChart(); });
 
 function niceStep(raw) {
   const p = 10 ** Math.floor(Math.log10(raw));

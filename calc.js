@@ -81,3 +81,25 @@ export function formatDuration(ms) {
     : [Math.floor(s / 60) && `${Math.floor(s / 60)}min`, s % 60 && `${s % 60}s`];
   return parts.filter(Boolean).join(' ') || '0s';
 }
+
+// Chart viewport: { start, end } in epoch ms, kept within [first, last] and never narrower than MIN_VIEW.
+export const MIN_VIEW = 5 * DAY;
+
+function clampSpan(span, first, last) {
+  const total = last - first;
+  return Math.min(Math.max(span, Math.min(MIN_VIEW, total)), total);
+}
+
+export function clampView(start, end, first, last) {
+  const span = clampSpan(end - start, first, last);
+  const s = Math.min(Math.max(start, first), last - span);
+  return { start: s, end: s + span };
+}
+
+// factor > 1 zooms out, < 1 zooms in; the time under `anchor` stays put.
+export function zoomView(view, factor, anchor, first, last) {
+  const oldSpan = view.end - view.start;
+  const span = clampSpan(oldSpan * factor, first, last);
+  const start = anchor - (anchor - view.start) / oldSpan * span;
+  return clampView(start, start + span, first, last);
+}

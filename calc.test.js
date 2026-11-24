@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseReading, intervals, windowStats, summary, validateEntry, formatDuration, KWH_PER_M3, DAY } from './calc.js';
+import { parseReading, intervals, windowStats, summary, validateEntry, formatDuration, clampView, zoomView, MIN_VIEW, KWH_PER_M3, DAY } from './calc.js';
 
 const H = 3600 * 1000;
 const t0 = Date.UTC(2026, 10, 1);
@@ -72,4 +72,26 @@ test('formatDuration shows d/h, falls back to min/s under an hour', () => {
   assert.equal(formatDuration(45 * 60e3), '45min');
   assert.equal(formatDuration(90e3), '1min 30s');
   assert.equal(formatDuration(40e3), '40s');
+});
+
+test('clampView keeps view within data and at least 5 days wide', () => {
+  const first = t0, last = t0 + 30 * DAY;
+  assert.deepEqual(clampView(t0 + 10 * DAY, t0 + 11 * DAY, first, last), { start: t0 + 10 * DAY, end: t0 + 15 * DAY });
+  assert.deepEqual(clampView(t0 - 3 * DAY, t0 + 7 * DAY, first, last), { start: t0, end: t0 + 10 * DAY });
+  assert.deepEqual(clampView(t0 + 28 * DAY, t0 + 38 * DAY, first, last), { start: t0 + 20 * DAY, end: last });
+  assert.deepEqual(clampView(t0 - DAY, t0 + 99 * DAY, first, last), { start: first, end: last });
+  // less than 5 days of data: whole range
+  assert.deepEqual(clampView(t0, t0 + DAY, first, t0 + 2 * DAY), { start: first, end: t0 + 2 * DAY });
+});
+
+test('zoomView keeps anchor fixed and respects limits', () => {
+  const first = t0, last = t0 + 30 * DAY;
+  const full = { start: first, end: last };
+  const anchor = t0 + 15 * DAY;
+  const z = zoomView(full, 0.5, anchor, first, last);
+  assert.deepEqual(z, { start: t0 + 7.5 * DAY, end: t0 + 22.5 * DAY });
+  const max = zoomView(z, 0.01, anchor, first, last);
+  assert.equal(max.end - max.start, MIN_VIEW);
+  assert.equal(max.start + (anchor - z.start) / (z.end - z.start) * MIN_VIEW, anchor);
+  assert.deepEqual(zoomView(z, 10, anchor, first, last), full);
 });
