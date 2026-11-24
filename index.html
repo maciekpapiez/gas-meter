@@ -188,9 +188,9 @@ function renderTiles() {
     return;
   }
   $('tiles').innerHTML =
-    tile('Ostatni przedział', fmt(s.lastKw), 'kW') +
-    tile('Ostatnie 7 dni', fmt(s.week.kw), 'kW', `${fmt(s.week.kwh, 0)} kWh`) +
-    tile('Sezon', fmt(s.season.kw), 'kW', `${fmt(s.season.hours / 24, 1)} dni`) +
+    tile('Ostatni przedział', fmt(s.lastKw, 1), 'kW') +
+    tile('Ostatnie 7 dni', fmt(s.week.kw, 1), 'kW', `${fmt(s.week.kwh, 0)} kWh`) +
+    tile('Sezon', fmt(s.season.kw, 1), 'kW', `${fmt(s.season.hours / 24, 1)} dni`) +
     tile('Zużycie w sezonie', fmt(s.season.kwh, 0), 'kWh', `${fmt(s.season.kwh / KWH_PER_M3, 1)} m³`);
 }
 
@@ -342,9 +342,9 @@ function renderTable() {
     <thead><tr><th>Odczyt</th><th>m³</th><th>Czas</th><th>kW</th><th></th></tr></thead>
     <tbody>${rows.map(({ e, iv }) => `<tr>
       <td>${dateFmt.format(e.ts)}</td>
-      <td>${fmt(e.m3, 3)}</td>
+      <td>${fmt(e.m3, 2)}</td>
       <td>${iv ? formatDuration(iv.to - iv.from) : ''}</td>
-      <td>${iv ? fmt(iv.kw) : ''}</td>
+      <td>${iv ? fmt(iv.kw, 1) : ''}</td>
       <td class="del"><button data-ts="${e.ts}" aria-label="Usuń odczyt">×</button></td>
     </tr>`).join('')}</tbody></table>`;
 }
