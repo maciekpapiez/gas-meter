@@ -69,7 +69,7 @@
   #chart .area { fill: var(--accent-soft); opacity: .6; }
 
   #table { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th { text-align: right; color: var(--muted); font-weight: 500; font-size: 12px; padding: 0 4px 8px; }
   th, td { white-space: nowrap; }
   td { text-align: right; padding: 8px 3px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
@@ -227,13 +227,11 @@ function renderTable() {
   // Newest first; each row = a reading plus the interval ending at it.
   const rows = entries.map((e, i) => ({ e, iv: i > 0 ? ivs[i - 1] : null })).reverse();
   $('table').innerHTML = `<table>
-    <thead><tr><th>Odczyt</th><th>m³</th><th>Czas</th><th>Δ m³</th><th>kWh</th><th>kW</th><th></th></tr></thead>
+    <thead><tr><th>Odczyt</th><th>m³</th><th>Czas</th><th>kW</th><th></th></tr></thead>
     <tbody>${rows.map(({ e, iv }) => `<tr>
       <td>${dateFmt.format(e.ts)}</td>
       <td>${fmt(e.m3, 3)}</td>
       <td>${iv ? formatDuration(iv.to - iv.from) : ''}</td>
-      <td>${iv ? fmt(iv.dm3, 3) : ''}</td>
-      <td>${iv ? fmt(iv.kwh, 1) : ''}</td>
       <td>${iv ? fmt(iv.kw) : ''}</td>
       <td class="del"><button data-ts="${e.ts}" aria-label="Usuń odczyt">×</button></td>
     </tr>`).join('')}</tbody></table>`;
